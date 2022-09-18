@@ -1,0 +1,9 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="pip-sync dev" type="RUN_ANYTHING_CONFIGURATION" factoryName="RunAnythingFactory" folderName="Packaging">
+    <option name="arguments" value="requirements/dev.txt" />
+    <option name="command" value="$PyInterpreterDirectory$/pip-sync" />
+    <option name="inputText" value="" />
+    <option name="workingDirectory" value="$PROJECT_DIR$" />
+    <method v="2" />
+  </configuration>
+</component>

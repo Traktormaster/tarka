@@ -1,0 +1,9 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="bumpversion patch" type="RUN_ANYTHING_CONFIGURATION" factoryName="RunAnythingFactory" folderName="Packaging">
+    <option name="arguments" value="patch" />
+    <option name="command" value="$PyInterpreterDirectory$/bumpversion" />
+    <option name="inputText" value="" />
+    <option name="workingDirectory" value="$PROJECT_DIR$" />
+    <method v="2" />
+  </configuration>
+</component>
