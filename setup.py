@@ -47,6 +47,7 @@ setup(
     version=VERSION,
     description="Various things for common use, like a Swiss Army Knife.",
     long_description=long_description,
+    long_description_content_type="text/markdown",
     url="https://github.com/Traktormaster/tarka",
     author="Nándor Mátravölgyi",
     author_email="nandor.matra@gmail.com",
