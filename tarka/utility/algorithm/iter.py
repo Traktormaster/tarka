@@ -1,4 +1,8 @@
-from typing import Iterable, Any, TypeVar, Generator, Iterator, Hashable
+from typing import Iterable, Any, TypeVar, Generator, Iterator, Hashable, Union
+
+from tarka.utility.sentinel import NamedObject
+
+SENTINEL = NamedObject("sentinel")
 
 _HashableT = TypeVar("_HashableT", bound=Hashable)
 _AnyT = TypeVar("_AnyT", bound=Any)
@@ -16,14 +20,70 @@ def iter_unique(*item_iters: Iterable[_HashableT]) -> Generator[_HashableT, None
                 yield item
 
 
-def iter_merge_two(a: Iterable[_AnyT], b: Iterable[_AnyT]) -> Generator[_AnyT, None, None]:
+def iter_merge_zip(
+    a: Iterable[_AnyT], b: Iterable[_AnyT], s: NamedObject = SENTINEL
+) -> Generator[tuple[Union[_AnyT, NamedObject], Union[_AnyT, NamedObject]], None, None]:
+    """
+    Two-way merge-zip using the iterator interface.
+    The iterators must yield their items sorted in ascending order.
+    Either of the yielded tuple values may be the sentinel which indicates miss, but not both.
+    """
+    a = iter(a)
+    b = iter(b)
+    try:
+        i = next(a)
+    except StopIteration:
+        i = s
+    try:
+        j = next(b)
+    except StopIteration:
+        j = s
+    while i is not s and j is not s:
+        if i == j:
+            yield i, j
+            try:
+                i = next(a)
+            except StopIteration:
+                i = s
+            try:
+                j = next(b)
+            except StopIteration:
+                j = s
+        elif i < j:
+            yield i, s
+            try:
+                i = next(a)
+            except StopIteration:
+                i = s
+        else:
+            yield s, j
+            try:
+                j = next(b)
+            except StopIteration:
+                j = s
+    if i is not s:
+        yield i, s
+        while True:
+            try:
+                yield next(a), s
+            except StopIteration:
+                break
+    if j is not s:
+        yield s, j
+        while True:
+            try:
+                yield s, next(b)
+            except StopIteration:
+                break
+
+
+def iter_merge_two(a: Iterable[_AnyT], b: Iterable[_AnyT], s: NamedObject = SENTINEL) -> Generator[_AnyT, None, None]:
     """
     Two-way merge using the iterator interface.
     The iterators must yield their items sorted in ascending order.
     """
     a = iter(a)
     b = iter(b)
-    s = object()  # sentinel object as end-of-iteration marker
     try:
         i = next(a)
     except StopIteration:
@@ -61,7 +121,7 @@ def iter_merge_two(a: Iterable[_AnyT], b: Iterable[_AnyT]) -> Generator[_AnyT, N
                 break
 
 
-def iter_merge(*item_iters: Iterable[_AnyT]) -> Iterator[_AnyT]:
+def iter_merge(*item_iters: Iterable[_AnyT], s: NamedObject = SENTINEL) -> Iterator[_AnyT]:
     """
     Multi merge using the iterator interface.
     The iterators must yield their items sorted in ascending order.
@@ -70,16 +130,16 @@ def iter_merge(*item_iters: Iterable[_AnyT]) -> Iterator[_AnyT]:
         return iter(())
     m = iter(item_iters[0])
     for i in range(1, len(item_iters)):
-        m = iter_merge_two(m, iter(item_iters[i]))
+        m = iter_merge_two(m, iter(item_iters[i]), s=s)
     return m
 
 
-def iter_merge_unique(*item_iters: Iterable[_AnyT]) -> Generator[_AnyT, None, None]:
+def iter_merge_unique(*item_iters: Iterable[_AnyT], s: NamedObject = SENTINEL) -> Generator[_AnyT, None, None]:
     """
     Yield unique items for the iterables by merge-iterating over them.
     The iterators must yield their items sorted in ascending order.
     """
-    m = iter_merge(*item_iters)
+    m = iter_merge(*item_iters, s=s)
     try:
         last_item = next(m)
     except StopIteration:
