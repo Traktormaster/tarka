@@ -1,4 +1,4 @@
-from typing import Iterable, Any, TypeVar, Generator, Iterator, Hashable, Union
+from typing import Iterable, Any, TypeVar, Generator, Iterator, Hashable, Union, Optional, Callable
 
 from tarka.utility.sentinel import NamedObject
 
@@ -20,14 +20,71 @@ def iter_unique(*item_iters: Iterable[_HashableT]) -> Generator[_HashableT, None
                 yield item
 
 
+def select_eq_cmp_by_args(
+    key: Optional[Callable[[_AnyT], Any]] = None, ascending: bool = True
+) -> tuple[Callable[[_AnyT, _AnyT], bool], Callable[[_AnyT, _AnyT], bool], Callable[[_AnyT, _AnyT], bool]]:
+    """
+    Select the proper comparison lambdas to use for the properties.
+    Return a lambda for testing equality, compare-not-equal and compare-or-equal.
+    """
+    if key is None:
+
+        def _eq(i_: _AnyT, j_: _AnyT) -> bool:
+            return i_ == j_
+
+        if ascending:
+
+            def _cnq(i_: _AnyT, j_: _AnyT) -> bool:
+                return i_ < j_
+
+            def _ceq(i_: _AnyT, j_: _AnyT) -> bool:
+                return i_ <= j_
+
+        else:
+
+            def _cnq(i_: _AnyT, j_: _AnyT) -> bool:
+                return i_ > j_
+
+            def _ceq(i_: _AnyT, j_: _AnyT) -> bool:
+                return i_ >= j_
+
+    else:
+
+        def _eq(i_: _AnyT, j_: _AnyT) -> bool:
+            return key(i_) == key(j_)
+
+        if ascending:
+
+            def _cnq(i_: _AnyT, j_: _AnyT) -> bool:
+                return key(i_) < key(j_)
+
+            def _ceq(i_: _AnyT, j_: _AnyT) -> bool:
+                return key(i_) <= key(j_)
+
+        else:
+
+            def _cnq(i_: _AnyT, j_: _AnyT) -> bool:
+                return key(i_) > key(j_)
+
+            def _ceq(i_: _AnyT, j_: _AnyT) -> bool:
+                return key(i_) >= key(j_)
+
+    return _eq, _cnq, _ceq
+
+
 def iter_merge_zip(
-    a: Iterable[_AnyT], b: Iterable[_AnyT], s: NamedObject = SENTINEL
+    a: Iterable[_AnyT],
+    b: Iterable[_AnyT],
+    key: Optional[Callable[[_AnyT], Any]] = None,
+    ascending: bool = True,
+    s: NamedObject = SENTINEL,
 ) -> Generator[tuple[Union[_AnyT, NamedObject], Union[_AnyT, NamedObject]], None, None]:
     """
     Two-way merge-zip using the iterator interface.
-    The iterators must yield their items sorted in ascending order.
+    The iterators must yield their items sorted in in the order specified by `ascending`.
     Either of the yielded tuple values may be the sentinel which indicates miss, but not both.
     """
+    _eq, _cnq, _ = select_eq_cmp_by_args(key, ascending)
     a = iter(a)
     b = iter(b)
     try:
@@ -39,7 +96,7 @@ def iter_merge_zip(
     except StopIteration:
         j = s
     while i is not s and j is not s:
-        if i == j:
+        if _eq(i, j):
             yield i, j
             try:
                 i = next(a)
@@ -49,7 +106,7 @@ def iter_merge_zip(
                 j = next(b)
             except StopIteration:
                 j = s
-        elif i < j:
+        elif _cnq(i, j):
             yield i, s
             try:
                 i = next(a)
@@ -77,11 +134,18 @@ def iter_merge_zip(
                 break
 
 
-def iter_merge_two(a: Iterable[_AnyT], b: Iterable[_AnyT], s: NamedObject = SENTINEL) -> Generator[_AnyT, None, None]:
+def iter_merge_two(
+    a: Iterable[_AnyT],
+    b: Iterable[_AnyT],
+    key: Optional[Callable[[_AnyT], Any]] = None,
+    ascending: bool = True,
+    s: NamedObject = SENTINEL,
+) -> Generator[_AnyT, None, None]:
     """
     Two-way merge using the iterator interface.
     The iterators must yield their items sorted in ascending order.
     """
+    _, _, _ceq = select_eq_cmp_by_args(key, ascending)
     a = iter(a)
     b = iter(b)
     try:
@@ -93,7 +157,7 @@ def iter_merge_two(a: Iterable[_AnyT], b: Iterable[_AnyT], s: NamedObject = SENT
     except StopIteration:
         j = s
     while i is not s and j is not s:
-        if i <= j:
+        if _ceq(i, j):
             yield i
             try:
                 i = next(a)
@@ -121,7 +185,12 @@ def iter_merge_two(a: Iterable[_AnyT], b: Iterable[_AnyT], s: NamedObject = SENT
                 break
 
 
-def iter_merge(*item_iters: Iterable[_AnyT], s: NamedObject = SENTINEL) -> Iterator[_AnyT]:
+def iter_merge(
+    *item_iters: Iterable[_AnyT],
+    key: Optional[Callable[[_AnyT], Any]] = None,
+    ascending: bool = True,
+    s: NamedObject = SENTINEL
+) -> Iterator[_AnyT]:
     """
     Multi merge using the iterator interface.
     The iterators must yield their items sorted in ascending order.
@@ -130,16 +199,18 @@ def iter_merge(*item_iters: Iterable[_AnyT], s: NamedObject = SENTINEL) -> Itera
         return iter(())
     m = iter(item_iters[0])
     for i in range(1, len(item_iters)):
-        m = iter_merge_two(m, iter(item_iters[i]), s=s)
+        m = iter_merge_two(m, iter(item_iters[i]), key=key, ascending=ascending, s=s)
     return m
 
 
-def iter_merge_unique(*item_iters: Iterable[_AnyT], s: NamedObject = SENTINEL) -> Generator[_AnyT, None, None]:
+def iter_merge_unique(
+    *item_iters: Iterable[_AnyT], ascending: bool = True, s: NamedObject = SENTINEL
+) -> Generator[_AnyT, None, None]:
     """
     Yield unique items for the iterables by merge-iterating over them.
     The iterators must yield their items sorted in ascending order.
     """
-    m = iter_merge(*item_iters, s=s)
+    m = iter_merge(*item_iters, ascending=ascending, s=s)
     try:
         last_item = next(m)
     except StopIteration:
