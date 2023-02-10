@@ -4,10 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from tarka.utility.file import SafeFile
+from tarka.utility.file.safe import SafeFile
 
 
-def test_safe_file(tmp_path: Path):
+def test_file_safe_file(tmp_path: Path):
     sf = SafeFile(str(tmp_path / "best.json"))
     with pytest.raises(FileNotFoundError):
         sf.read()
