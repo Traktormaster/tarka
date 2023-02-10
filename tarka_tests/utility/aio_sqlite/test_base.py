@@ -78,7 +78,7 @@ class _TestingAioSQLiteDatabase(AbstractAioSQLiteDatabase):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("wal", [False, True])
 async def test_aio_sqlite_base(tmpdir, wal):
-    args = wal, asyncio.get_event_loop(), str(tmpdir.join(str(uuid.uuid4()))), 10.0
+    args = wal, str(tmpdir.join(str(uuid.uuid4()))), 1.0
     db = _TestingAioSQLiteDatabase(*args)
     with pytest.raises(AttributeError):
         await db.get_all()
@@ -136,3 +136,6 @@ async def test_aio_sqlite_base(tmpdir, wal):
             await db.insert(*rx)
         with pytest.raises(_SQLiteDbgException):
             await f3
+
+    await asyncio.sleep(0.1)  # allow stop callbacks to finish
+    assert db.closed.is_set()

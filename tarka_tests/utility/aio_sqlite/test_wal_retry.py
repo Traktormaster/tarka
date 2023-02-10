@@ -1,4 +1,5 @@
 import asyncio
+import sqlite3
 import time
 import uuid
 from contextlib import AsyncExitStack
@@ -6,7 +7,7 @@ from functools import partialmethod, partial
 
 import pytest
 
-from tarka.utility.aio_sqlite import AbstractAioSQLiteDatabase, _sqlite_retry
+from tarka.utility.aio_sqlite import AbstractAioSQLiteDatabase, sqlite_retry
 
 
 class _SQLiteDbgException(Exception):
@@ -31,11 +32,11 @@ class _TestingAioSQLiteDatabase(AbstractAioSQLiteDatabase):
             return rows[0][0]
 
     def _retry_checkpoint(self):
-        _sqlite_retry(partial(AbstractAioSQLiteDatabase._checkpoint, self), -10)
+        sqlite_retry(partial(AbstractAioSQLiteDatabase._checkpoint, self), -10)
 
     checkpoint = partialmethod(AbstractAioSQLiteDatabase._run_job, _retry_checkpoint, begin_immediate=False)
     write_checkpoint = partialmethod(
-        AbstractAioSQLiteDatabase._run_job, _write_impl, post_process_fn=AbstractAioSQLiteDatabase._checkpoint
+        AbstractAioSQLiteDatabase._run_job, _write_impl, post_process_fn=AbstractAioSQLiteDatabase._checkpoint_retrying
     )
     write = partialmethod(AbstractAioSQLiteDatabase._run_job, _write_impl)
     write_no_immediate = partialmethod(AbstractAioSQLiteDatabase._run_job, _write_impl, begin_immediate=False)
@@ -44,12 +45,11 @@ class _TestingAioSQLiteDatabase(AbstractAioSQLiteDatabase):
 
 @pytest.mark.asyncio
 async def test_aio_sqlite_wal_retry(tmpdir):
-    loop = asyncio.get_event_loop()
     db_path = str(tmpdir.join(str(uuid.uuid4())))
     async with AsyncExitStack() as stack:
-        dba = await stack.enter_async_context(_TestingAioSQLiteDatabase.create(loop, db_path, 10.0))
-        dbb = await stack.enter_async_context(_TestingAioSQLiteDatabase.create(loop, db_path, 10.0))
-        dbc = await stack.enter_async_context(_TestingAioSQLiteDatabase.create(loop, db_path, 10.0))
+        dba = await stack.enter_async_context(_TestingAioSQLiteDatabase.create(db_path, 10.0))
+        dbb = await stack.enter_async_context(_TestingAioSQLiteDatabase.create(db_path, 10.0))
+        dbc = await stack.enter_async_context(_TestingAioSQLiteDatabase.create(db_path, 10.0))
         await asyncio.sleep(0.25)  # all need to start up to have stable locking
 
         await dba.write("kx", "vx")
@@ -123,3 +123,27 @@ async def test_aio_sqlite_wal_retry(tmpdir):
         await _read_before(dbc, "k2", None)
         await asyncio.gather(at, bt, *ts)
         assert await dbc.read("k2") == "v29"
+
+    await asyncio.sleep(0.1)  # allow stop callbacks to finish
+    assert dba.closed.is_set()
+    assert dbb.closed.is_set()
+    assert dbc.closed.is_set()
+
+
+@pytest.mark.asyncio
+async def test_aio_sqlite_wal_timeout(tmpdir):
+    db_path = str(tmpdir.join(str(uuid.uuid4())))
+    async with AsyncExitStack() as stack:
+        dba = await stack.enter_async_context(_TestingAioSQLiteDatabase.create(db_path, 2.0))
+        dbb = await stack.enter_async_context(_TestingAioSQLiteDatabase.create(db_path, 0.25))
+
+        at = asyncio.create_task(dba.write("k0", "v2", None, 1.5))
+        await asyncio.sleep(0.1)
+        bt = asyncio.create_task(dbb.write("k0", "v3", None, 0.5))
+        await at
+        with pytest.raises(sqlite3.OperationalError):
+            await bt
+
+    await asyncio.sleep(0.1)  # allow stop callbacks to finish
+    assert dba.closed.is_set()
+    assert dbb.closed.is_set()

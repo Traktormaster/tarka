@@ -4,7 +4,7 @@ from typing import Optional, Sequence, Any, Callable
 
 class AbstractThread(object):
     """
-    Simple thread wrapper with support for stopping by request.
+    Simple thread boilerplate or wrapper with support for stopping by request and a callback at exit.
     """
 
     __slots__ = ("__args", "__alive", "__t")
@@ -62,7 +62,7 @@ class AbstractThread(object):
         Request the thread to stop and wait for it if desired. Returns True if the thread has stopped before returning.
         """
         self.__alive = False
-        if timeout > 0 and not self.is_finished():
+        if (timeout is None or timeout > 0) and not self.is_finished():
             self.__t.join(timeout)
         return self.is_finished()
 

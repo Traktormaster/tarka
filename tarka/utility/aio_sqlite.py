@@ -4,7 +4,7 @@ import time
 from contextlib import contextmanager, asynccontextmanager
 from functools import partial
 import queue
-from typing import Callable, Optional, Any, Sequence
+from typing import Callable, Optional, Any, Sequence, TypeVar, Type, AsyncContextManager
 
 import wait_for2
 
@@ -21,7 +21,22 @@ def _callback_exception(future: asyncio.Future, exc):
         future.set_exception(exc)
 
 
-def _sqlite_retry(fn: Callable[[], Any], retry_timeout: Optional[float] = None, wait_time: float = 0.001):
+def sqlite_retry(
+    fn: Callable[[], Any],
+    retry_timeout: Optional[float] = None,
+    wait_time: float = 0.001,
+    max_wait_time: float = 0.15,
+    wait_multiplier: float = 1.5,
+) -> Any:
+    """
+    Simple retry logic for handling SQLite operational errors when necessary. Keep in mind that using this can and
+    should be avoided usually, because the builtin busy_timeout handler is set up by default. There are a few
+    exceptions that do not utilize the busy_handler even if it is set, like the wal_checkpoint pragma.
+
+    The wait time can be absolute (to the process by time.perf_counter()) to retry until, or a duration to retry for.
+    The duration can be expressed by negative values, which will be translated into absolute time when the first error
+    is raised.
+    """
     while True:
         try:
             return fn()
@@ -32,8 +47,13 @@ def _sqlite_retry(fn: Callable[[], Any], retry_timeout: Optional[float] = None, 
                 retry_timeout = time.perf_counter() - retry_timeout
             elif time.perf_counter() > retry_timeout:
                 raise
-            else:  # NOTE: no wait for the first retry
-                time.sleep(wait_time)
+        time.sleep(wait_time)
+        # adjust wait time to backoff next time if error persists
+        if wait_time < max_wait_time:
+            wait_time *= wait_multiplier
+
+
+_ClsT = TypeVar("_ClsT")
 
 
 class AbstractAioSQLiteDatabase(AbstractThread):
@@ -52,11 +72,11 @@ class AbstractAioSQLiteDatabase(AbstractThread):
 
     """
 
-    __slots__ = ("_loop", "_con", "_request_queue", "started", "closed")
+    __slots__ = ("_loop", "_con", "_request_queue", "_timeout", "started", "closed")
 
     @classmethod
     @asynccontextmanager
-    async def create(cls, *args, **kwargs):
+    async def create(cls: Type[_ClsT], *args, **kwargs) -> AsyncContextManager[_ClsT]:
         """
         Strict start-stop helper for automatic cleanup.
         """
@@ -68,41 +88,40 @@ class AbstractAioSQLiteDatabase(AbstractThread):
         finally:
             self.stop()
 
-    def __init__(
-        self,
-        loop: asyncio.AbstractEventLoop,
-        sqlite_db_path: str,
-        sqlite_timeout: float = 60.0,
-    ):
-        self._loop = loop
+    def __init__(self, sqlite_db_path: str, sqlite_timeout: float = 60.0):
+        self._loop = asyncio.get_running_loop()
         self._con: sqlite3.Connection = None
         self._request_queue: queue.Queue = None
-        AbstractThread.__init__(self, (sqlite_db_path, sqlite_timeout))
+        self._timeout = sqlite_timeout
+        AbstractThread.__init__(self, (sqlite_db_path,))
         self.started = asyncio.Event()
         self.closed = asyncio.Event()
 
     async def wait_ready(self):
-        await asyncio.wait(
-            [self._loop.create_task(self.started.wait()), self._loop.create_task(self.closed.wait())],
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-        if self.closed.is_set():
+        if self.is_alive():  # only wait for start/stop if the worker thread has been started
+            started_task = self._loop.create_task(self.started.wait())
+            closed_task = self._loop.create_task(self.closed.wait())
+            _, pending = await asyncio.wait([started_task, closed_task], return_when=asyncio.FIRST_COMPLETED)
+            if pending:  # cleanup tasks to avoid them being logged as abandoned
+                for t in pending:
+                    t.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
+        if self.closed.is_set() or not self.started.is_set():
             raise Exception(f"SQLite connection could not start for {self.__class__.__name__}")
-        assert self.started.is_set()
 
     def start(
         self,
         args: Optional[Sequence[Any]] = None,
         callback: Optional[Callable[[], None]] = None,
-        daemon: Optional[bool] = False,
+        daemon: Optional[bool] = None,
         name_prefix: Optional[str] = None,
     ):
         if args is not None:  # pragma: no cover
             raise ValueError("SQLite worker does not support custom args at start.")
         if callback is not None:  # pragma: no cover
             raise ValueError("SQLite worker does not support custom callback. Use the 'closed' event.")
-        if daemon is not False:  # pragma: no cover
-            raise ValueError("SQLite worker must not be daemon to ensure consistency at cleanup.")
+        if daemon not in (None, False):  # pragma: no cover
+            raise ValueError("SQLite worker must not be daemon to ensure cleanup.")
         self._request_queue = queue.Queue()
         AbstractThread.start(self, None, partial(self._loop.call_soon_threadsafe, self.closed.set), False, name_prefix)
 
@@ -115,15 +134,15 @@ class AbstractAioSQLiteDatabase(AbstractThread):
             q.put_nowait(None)
         return AbstractThread.stop(self, timeout)
 
-    def _thread(self, db_path: str, timeout: float) -> None:
+    def _thread(self, db_path: str) -> None:
         """
         SQLite connection and request executor thread.
         """
-        self._con = sqlite3.connect(db_path, timeout=timeout, isolation_level=None)
+        self._con = sqlite3.connect(db_path, timeout=self._timeout, isolation_level=None)
         try:
             # initialise the db
-            _sqlite_retry(self._initialise, retry_timeout=-timeout)
-            with self._transact(begin_immediate=True, retry_timeout=-timeout):
+            self._initialise()
+            with self._transact(begin_immediate=True):
                 self._setup()
             self._loop.call_soon_threadsafe(self.started.set)
             # run job queue
@@ -132,13 +151,13 @@ class AbstractAioSQLiteDatabase(AbstractThread):
                 if job is None:
                     break
                 process_fn, args, post_process_fn, aio_future, begin_immediate = job
-                if aio_future.done():
+                if aio_future.done():  # Could have been cancelled before we got to it.
                     continue
                 try:
-                    with self._transact(begin_immediate, retry_timeout=-timeout):
+                    with self._transact(begin_immediate):
                         result = process_fn(self, *args)
                     if post_process_fn:
-                        _sqlite_retry(partial(post_process_fn, self), retry_timeout=-timeout)
+                        post_process_fn(self)
                     self._loop.call_soon_threadsafe(_callback_result, aio_future, result)
                 except Exception as e:
                     self._loop.call_soon_threadsafe(_callback_exception, aio_future, e)
@@ -160,9 +179,9 @@ class AbstractAioSQLiteDatabase(AbstractThread):
             con.close()
 
     @contextmanager
-    def _transact(self, begin_immediate: bool, retry_timeout: Optional[float] = None):
+    def _transact(self, begin_immediate: bool):
         if begin_immediate:
-            _sqlite_retry(partial(self._con.execute, "BEGIN IMMEDIATE"), retry_timeout)
+            self._con.execute("BEGIN IMMEDIATE")
         else:
             self._con.execute("BEGIN")
         try:
@@ -202,6 +221,9 @@ class AbstractAioSQLiteDatabase(AbstractThread):
         with persistence, when the application can choose to ensure durability at any point by issuing a checkpoint.
         Additionally the "wal_autocheckpoint" pragma could be tuned depending on the database use-pattern.
 
+        The "busy_timeout" pragma does not need to be set here, as the python binding of SQLite3 does that in the
+        connection, for which it uses the "timeout" argument.
+
         NOTE: Current execution is not inside a transaction!
         """
         self._con.execute("PRAGMA journal_mode = WAL;")
@@ -215,15 +237,23 @@ class AbstractAioSQLiteDatabase(AbstractThread):
 
     def _checkpoint(self):
         """
-        Only use in WAL mode.
+        Use in WAL mode with NORMAL synchronous operation to ensure writes are synced to storage!
         When guaranteed durability is required at a point, this can be used as a post-process callback like:
 
             mut_xy = partialmethod(AbstractAioSQLiteDatabase._run_job, _mut_xy_impl, post_process_fn=_checkpoint)
 
-        If there are multiple writer processes the checkpoint api call can easily return SQLITE_BUSY. The
-        post-processing is wrapped in _sqlite_retry so this is naively handled.
-        If the database is used by a single process in a single instance, such will not happen. It will not happen
-        when other instances are exclusively readers and do not acquire write-locks either.
+        If there are multiple writer processes the checkpoint api call can easily return SQLITE_BUSY.
+        If the database is used by a single process in a single instance, such will not happen.
         """
         if self._con.execute("PRAGMA wal_checkpoint(TRUNCATE);").fetchall()[0][0] != 0:
-            raise sqlite3.OperationalError("WAL checkpoint failed")
+            raise sqlite3.OperationalError("WAL checkpoint failed: SQLITE_BUSY")
+
+    def _checkpoint_retrying(self):
+        """
+        To be used similarly to ._checkpoint(), but this will implicitly retry similar to normal operations as
+        configured initial timeout value.
+        Use if multiple connections are expected to operate on the DB and one will require explicit checkpoints
+        at specific places this may work well enough.
+        Keep in mind though, that if more durability is required, the synchronous pragma could be tuned instead.
+        """
+        sqlite_retry(self._checkpoint, retry_timeout=-self._timeout)

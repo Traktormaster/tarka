@@ -1,5 +1,8 @@
 # tarka
 
+## 0.9.0
+- improved retry logic of aio_sqlite
+
 ## 0.8.0
 - key argument added to iterator merge utilities
 - iterator merge utilities can handle descending order as well
