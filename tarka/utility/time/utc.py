@@ -4,14 +4,25 @@ All datetime objects returned are in UTC offset zero.
 All timestamps are considered to be in UNIX epoch format.
 """
 import re
+import sys
 import time
 from datetime import datetime, timezone, timedelta
 from uuid import UUID
 
 ISO_DATETIME_RE = re.compile(
     r"^(\d{4})-(\d\d)-(\d\d)[T ](\d\d):(\d\d):(\d\d)(?:\.(\d{1,6}))?"
-    r"(?:Z|(?:([+-])(\d\d):?(\d\d):?(\d\d)?(?:\.(\d{1,6}))?))?$"
+    r"(?:Z|([+-])(\d\d):?(\d\d):?(\d\d)?(?:\.(\d{1,6}))?)?$"
 )
+
+
+if sys.platform.startswith("win"):
+    # NOTE: The C backend of fromtimestamp on Windows does not handle ranges before the epoch and farther in the
+    # future, so... don't use it. Luckily the datetime facility in python can  bu used instead easily.
+    def _dt_fromtimestamp(t, tz=None) -> datetime:
+        return datetime.fromtimestamp(0, tz) + timedelta(seconds=t)
+
+else:
+    _dt_fromtimestamp = datetime.fromtimestamp
 
 
 def utc_timestamp() -> float:
@@ -53,28 +64,28 @@ def utc_datetime() -> datetime:
     Current UTC time.
     Equivalent to calling: datetime.now(timezone.utc)
     """
-    return datetime.fromtimestamp(time.time(), timezone.utc)
+    return _dt_fromtimestamp(time.time(), timezone.utc)
 
 
 def utc_datetime_delta(offset_seconds: float) -> datetime:
     """
     Get the current timestamp with some offset.
     """
-    return datetime.fromtimestamp(time.time() + offset_seconds, timezone.utc)
+    return _dt_fromtimestamp(time.time() + offset_seconds, timezone.utc)
 
 
 def utc_datetime_from_timestamp(utc_epoch_timestamp: float) -> datetime:
     """
     Convert the UTC timestamp to an UTC datetime.
     """
-    return datetime.fromtimestamp(utc_epoch_timestamp, timezone.utc)
+    return _dt_fromtimestamp(utc_epoch_timestamp, timezone.utc)
 
 
 def utc_datetime_from_uuid(uuid1: UUID) -> datetime:
     """
     Convenience wrapper to get the timestamp of an UUID1 as datetime.
     """
-    return datetime.fromtimestamp(utc_timestamp_from_uuid(uuid1), timezone.utc)
+    return _dt_fromtimestamp(utc_timestamp_from_uuid(uuid1), timezone.utc)
 
 
 def utc_datetime_from_string(s: str) -> datetime:

@@ -1,8 +1,11 @@
 import os
 import re
+import sys
 import uuid
 from pathlib import Path
 from typing import Union, Tuple
+
+import pytest
 
 from tarka.utility.file.reserve import ReserveFile
 
@@ -11,6 +14,20 @@ def test_file_reserve(tmp_path: Path):
     root = tmp_path / str(uuid.uuid4())
     root.mkdir()
     rf = ReserveFile()
+
+    if sys.platform.startswith("win"):
+        # NOTE: On windows the path length is so limited that the maximum filename length cannot be tested as-is.
+        # This asserts that the usual (drive-path) fails while the extended path prefix works.
+        assert not str(root).startswith("\\\\")
+        root_len = len(str(root))
+        path_l250 = root / ("W" * max(250 - root_len, 1))
+        path_l250.write_bytes(b"ok0")
+        path_l260 = root / ("W" * max(260 - root_len, 1))
+        with pytest.raises(FileNotFoundError):
+            path_l260.write_bytes(b"ok1")
+        root = Path("\\\\?\\" + str(root))
+        path_l260 = root / ("W" * max(260 - root_len, 1))
+        path_l260.write_bytes(b"ok2")
 
     def _reserve(in_: str, out_: Union[Tuple[str, str], str]):
         def _check(o_):

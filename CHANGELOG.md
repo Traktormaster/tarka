@@ -5,6 +5,7 @@
 - moved SafePath utility to `tarka.utltity.file.safe` the `tarka.utltity.file` import path has been deprecated
 - new filename-extension splitting utility in `tarka.utltity.file.name`
 - new fire creation utility that reserves the given filename on best effort basis
+- fixed some utc-datetime compatibility issues for Windows
 
 ## 0.8.0
 - key argument added to iterator merge utilities
