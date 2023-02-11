@@ -1,5 +1,8 @@
 # tarka
 
+## 0.10.0
+- improved customization options of `tarka.utltity.file.reserve`
+
 ## 0.9.0
 - improved retry logic of `tarka.utltity.aio_sqlite`
 - moved SafePath utility to `tarka.utltity.file.safe` the `tarka.utltity.file` import path has been deprecated

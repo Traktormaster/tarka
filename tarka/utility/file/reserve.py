@@ -49,14 +49,15 @@ class ReserveFile:
         The directory must exist.
         """
         if not name:
-            prefix, suffix = self._adjustable_name(path_or_directory.name)
+            prefix, suffix = self._adjust_name_direct(path_or_directory.name)
             directory = self._resolve(path_or_directory.parent)
         else:
-            prefix, suffix = self._adjustable_name(name)
+            prefix, suffix = self._adjust_name_direct(name)
             directory = self._resolve(path_or_directory)
         fd_name = self._reserve_adjust(self._mk_direct, suffix, prefix, directory, 0)
         if fd_name:
             return fd_name
+        prefix, suffix = self._adjust_name_parts_temp(prefix, suffix)
         return self._reserve_adjust(self._mk_temp, suffix, prefix, directory, 8)  # mkstemp adds 8 char random sequence
 
     def _resolve(self, path: Path) -> Path:
@@ -65,11 +66,23 @@ class ReserveFile:
         """
         return path.resolve(strict=True)
 
-    def _adjustable_name(self, name: str) -> Tuple[str, str]:
+    def _adjust_name_direct(self, name: str) -> Tuple[str, str]:
         """
-        Can be overridden to customize the filename to be created.
+        Can be overridden to customize the filename to be created at the direct reserve attempt.
+        We need to make a the name split to prepare for inserting a random sequence in case of a conflict.
         """
         return split_extension(name)
+
+    def _adjust_name_parts_temp(self, prefix: str, suffix: str) -> Tuple[str, str]:
+        """
+        Can be overridden to customize the filename to be created at the temp/random sequence attempts.
+        The default implementation adds a separator character to the prefix, so the file name stay visually
+        clear from random sequence. The suffix should start with a separator dot for the extension, so no
+        change needed there.
+        """
+        if prefix.endswith("-"):
+            return prefix, suffix
+        return prefix + "-", suffix
 
     def _reserve_adjust(
         self,
