@@ -4,6 +4,7 @@
 - improved retry logic of `tarka.utltity.aio_sqlite`
 - moved SafePath utility to `tarka.utltity.file.safe` the `tarka.utltity.file` import path has been deprecated
 - new filename-extension splitting utility in `tarka.utltity.file.name`
+- new fire creation utility that reserves the given filename on best effort basis
 
 ## 0.8.0
 - key argument added to iterator merge utilities
