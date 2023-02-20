@@ -23,7 +23,7 @@ class ReserveFile:
         :param max_name_length: This is only to optimize the initial truncation loop. Should match the maximum
             file-name length of the current platform.
         """
-        self._max_name_length = max_name_length + 1  # +1 to use the value conveniently at comparison
+        self.max_name_length = max_name_length
 
         # mirrors how a binary file is created by mkstemp
         self.flags = os.O_RDWR | os.O_CREAT | os.O_EXCL
@@ -32,18 +32,18 @@ class ReserveFile:
         if hasattr(os, "O_BINARY"):
             self.flags |= os.O_BINARY
 
-    def reserve(self, path_or_directory: Path, name: str = "") -> str:
+    def reserve(self, path_or_directory: Path, name: str = "", try_as_is: bool = True) -> str:
         """
         This is a convenience function that should be used if the file is reserved for later, and no operations are
         to be done with it right now.
         The reserved name is returned which could be different to the input name.
         The directory must exist.
         """
-        fd, name = self.open_reserve(path_or_directory, name)
+        fd, name = self.open_reserve(path_or_directory, name, try_as_is)
         os.close(fd)
         return name
 
-    def open_reserve(self, path_or_directory: Path, name: str = "") -> Tuple[int, str]:
+    def open_reserve(self, path_or_directory: Path, name: str = "", try_as_is: bool = True) -> Tuple[int, str]:
         """
         Returns the open file-descriptor to the reserved file and its name, which could be different to the input name.
         The directory must exist.
@@ -54,9 +54,10 @@ class ReserveFile:
         else:
             prefix, suffix = self._adjust_name_direct(name)
             directory = self._resolve(path_or_directory)
-        fd_name = self._reserve_adjust(self._mk_direct, suffix, prefix, directory, 0)
-        if fd_name:
-            return fd_name
+        if try_as_is:
+            fd_name = self._reserve_adjust(self._mk_direct, suffix, prefix, directory, 0)
+            if fd_name:
+                return fd_name
         prefix, suffix = self._adjust_name_parts_temp(prefix, suffix)
         return self._reserve_adjust(self._mk_temp, suffix, prefix, directory, 8)  # mkstemp adds 8 char random sequence
 
@@ -113,7 +114,7 @@ class ReserveFile:
                     prefix = prefix[:-1]
                 elif suf_len > 0:
                     suffix = suffix[1:]
-                if pre_len + suf_len <= self._max_name_length - mk_len:
+                if pre_len + suf_len + mk_len - 1 <= self.max_name_length:
                     break
 
     def _mk_direct(self, suffix: str, prefix: str, directory: Path) -> Optional[Tuple[int, str]]:

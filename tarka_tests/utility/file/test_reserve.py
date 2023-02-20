@@ -29,12 +29,15 @@ def test_file_reserve(tmp_path: Path):
         path_l260 = root / ("W" * max(260 - root_len, 1))
         path_l260.write_bytes(b"ok2")
 
+    def _check_match(o_: str, out_: Tuple[str, str]):
+        assert re.match("^" + re.escape(out_[0]) + r"\w{8}" + re.escape(out_[1]) + "$", o_)
+
     def _reserve(in_: str, out_: Union[Tuple[str, str], str]):
         def _check(o_):
             if isinstance(out_, str):
                 assert o_ == out_
             else:
-                assert re.match("^" + re.escape(out_[0]) + r"\w{8}" + re.escape(out_[1]) + "$", o_)
+                _check_match(o_, out_)
 
         for args in [(root, in_), (root / in_,)]:
             fd, o = rf.open_reserve(*args)
@@ -74,4 +77,26 @@ def test_file_reserve(tmp_path: Path):
         ("a" * 150 + "." + "x" * 150, ("a" * 124, "x" * 123)),  # conflicts
         ("a" * 150 + "." + "y" * 149, "a" * 128 + "y" * 127),
     ]:
+        if len(i_name) <= rf.max_name_length:
+            ex_before = not isinstance(o_name, str)
+            assert (root / i_name).exists() is ex_before
         _reserve(i_name, o_name)
+        if len(i_name) <= rf.max_name_length:
+            assert (root / i_name).exists()
+
+    for i_name, o_name in [
+        ("xy", ("xy-", "")),
+        ("xy.txt", ("xy-", ".txt")),
+        ("xy.tar.gz", ("xy-", ".tar.gz")),
+        (". .xy.tar.gz", (". .xy-", ".tar.gz")),
+    ]:
+        assert not (root / i_name).exists()
+        _check_match(rf.reserve(root, i_name, False), o_name)
+        assert not (root / i_name).exists()
+
+    e_ascii = "e"
+    e_acute = "é"
+    assert len(os.fsencode(e_ascii)) == 1
+    assert len(os.fsencode(e_acute)) > 1
+    assert rf.reserve(root, e_ascii * 300) == e_ascii * rf.max_name_length
+    assert rf.reserve(root, e_acute * 300) == e_acute * (rf.max_name_length // len(os.fsencode(e_acute)))
