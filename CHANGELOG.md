@@ -1,5 +1,11 @@
 # tarka
 
+## 0.10.2
+- improved `tarka.utltity.file.reserve` to use platform specific length encoding
+
+## 0.10.1
+- added try_as_is option to `tarka.utltity.file.reserve`
+
 ## 0.10.0
 - improved customization options of `tarka.utltity.file.reserve`
 
