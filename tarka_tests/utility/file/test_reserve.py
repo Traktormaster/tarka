@@ -96,7 +96,12 @@ def test_file_reserve(tmp_path: Path):
 
     e_ascii = "e"
     e_acute = "é"
-    assert len(os.fsencode(e_ascii)) == 1
-    assert len(os.fsencode(e_acute)) > 1
-    assert rf.reserve(root, e_ascii * 300) == e_ascii * rf.max_name_length
-    assert rf.reserve(root, e_acute * 300) == e_acute * (rf.max_name_length // len(os.fsencode(e_acute)))
+    bird_jp = "鳥"
+    if sys.platform.startswith("linux"):
+        # Name length limit is for the byte representation.
+        for c in [e_ascii, e_acute, bird_jp]:
+            assert rf.reserve(root, c * 300) == c * (rf.max_name_length // len(os.fsencode(c)))
+    else:
+        # These platforms should have unicode char support on their primary filesystems.
+        for c in [e_ascii, e_acute, bird_jp]:
+            assert rf.reserve(root, c * 300) == c * rf.max_name_length

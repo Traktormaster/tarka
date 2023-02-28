@@ -18,12 +18,20 @@ class ReserveFile:
     the system, it will sensibly truncate characters.
     """
 
-    def __init__(self, max_name_length: int = 255):
+    def __init__(self, max_name_length: int = 255, fs_name_encode_length: Optional[Callable[[str], int]] = None):
         """
         :param max_name_length: This is only to optimize the initial truncation loop. Should match the maximum
             file-name length of the current platform.
+        :param fs_name_encode_length: Customizable name-length calculator for the initial stripping round.
         """
         self.max_name_length = max_name_length
+        if fs_name_encode_length is None:
+            if sys.platform.startswith("linux"):
+                self.fs_name_encode_length = self._fs_name_encode_utf8_bytes_length
+            else:  # Assuming Windows, macOS or other systems that may have Unicode filename support.
+                self.fs_name_encode_length = self._fs_name_encode_unicode_length
+        else:
+            self.fs_name_encode_length = fs_name_encode_length
 
         # mirrors how a binary file is created by mkstemp
         self.flags = os.O_RDWR | os.O_CREAT | os.O_EXCL
@@ -31,6 +39,21 @@ class ReserveFile:
             self.flags |= os.O_NOFOLLOW
         if hasattr(os, "O_BINARY"):
             self.flags |= os.O_BINARY
+
+    def _fs_name_encode_unicode_length(self, name: str) -> int:
+        """
+        This is used for platforms that have support for Unicode filename representation on their primary filesystems.
+        For these the unicode length shall be considered as the filename length as-is.
+        """
+        return len(name)
+
+    def _fs_name_encode_utf8_bytes_length(self, name: str) -> int:
+        """
+        On Linux (and possibly other POSIX systems that originate from the 1970s) the filename length limit is measured
+        as bytes, with a maximum length of 255. This limitation is so low-level in the kernel and all the file-systems
+        as well, that it will not be enhanced soon.
+        """
+        return len(os.fsencode(name))
 
     def reserve(self, path_or_directory: Path, name: str = "", try_as_is: bool = True) -> str:
         """
@@ -103,17 +126,26 @@ class ReserveFile:
                 else:
                     raise e
             # adjust prefix/suffix to make name sorter
+            pre_len = self.fs_name_encode_length(prefix)
+            suf_len = self.fs_name_encode_length(suffix)
             while True:
                 # NOTE: The underlying FS may enforce some normalization in addition to the encoding, so we actually
-                # cannot accurately calculate how long the name would be in the representation of the FS.
+                # cannot accurately calculate how long the name would be in the representation of the FS. In addition
+                # to that, different FS can have different file length support or may even change what the length
+                # limit actually means in relation to the character encoding:
+                #   - Windows counts the length limit in Unicode characters (as UTF-16 codepoints), having a limit of
+                #     255 for NTFS, exFAT and FAT32, while having a lower limit on some other filesystems such as UDF.
+                #   - macOS supports 255 Unicode characters with HFS+ similarly to Windows, but older or alternate
+                #     filesystems may have more restrictive limits.
+                #   - Linux counts the length limit as the encoded byte sequence up to 255 length in general.
                 # So we truncate to sensible length in one go, then if that is still not acceptable we proceed by
                 # a character each cycle with trial and error.
-                pre_len = len(os.fsencode(prefix))
-                suf_len = len(os.fsencode(suffix))
                 if pre_len > suf_len:
                     prefix = prefix[:-1]
+                    pre_len = self.fs_name_encode_length(prefix)
                 elif suf_len > 0:
                     suffix = suffix[1:]
+                    suf_len = self.fs_name_encode_length(suffix)
                 if pre_len + suf_len + mk_len - 1 <= self.max_name_length:
                     break
 
