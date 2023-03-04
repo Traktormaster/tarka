@@ -1,5 +1,8 @@
 # tarka
 
+## 0.11.0
+- new utf8 utilities in `tarka.utltity.utf8`
+
 ## 0.10.2
 - improved `tarka.utltity.file.reserve` to use platform specific length encoding
 
