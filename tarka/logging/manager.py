@@ -2,10 +2,19 @@ from __future__ import annotations
 
 import logging
 import logging.handlers
-import os
-import sys
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional, Union, TypeVar, Type
+
+from tarka.logging.handler import (
+    AbstractHandlerConfig,
+    NamedHandlersAndHandlerConfigs,
+    StreamHandlerConfig,
+    RotatingFileHandlerConfig,
+    FileHandlerConfig,
+)
+
+_HandlerT = TypeVar("_HandlerT", bound=logging.Handler)
+_AbstractHandlerConfigT = TypeVar("_AbstractHandlerConfigT", bound=AbstractHandlerConfig)
 
 
 class LoggerHandlerManager:
@@ -74,34 +83,59 @@ class LoggerHandlerManager:
         self.handlers[name] = handler
         return replaced_handler
 
+    # handler configs and setup convenience
+
+    def remove_config(self, hc: AbstractHandlerConfig) -> None:
+        self.remove(hc.name)
+
+    def add_config(self, hc: Type[_AbstractHandlerConfigT[_HandlerT]]) -> _HandlerT:
+        handler = hc.create()
+        self.add(hc.name, handler)
+        return handler
+
+    def setup_handlers(self, nh_or_hc_list: NamedHandlersAndHandlerConfigs) -> None:
+        # NOTE: When using the handler-config classes, one could specify the same handler multiple times with
+        # different attributes for example, but the manager-name shall be different in that case!
+        names_set_up = set()
+        for nh_or_hc in nh_or_hc_list:
+            if isinstance(nh_or_hc, AbstractHandlerConfig):
+                name = nh_or_hc.name
+                handler = nh_or_hc.create()
+            elif (
+                isinstance(nh_or_hc, tuple)
+                and len(nh_or_hc) == 2
+                and isinstance(nh_or_hc[0], str)
+                and isinstance(nh_or_hc[1], logging.Handler)
+            ):
+                name, handler = nh_or_hc
+            else:
+                raise Exception(f"Invalid handler or config for setup: {nh_or_hc}")
+            if name in names_set_up:
+                raise Exception(
+                    f"Already set up handler with name {name!r}: {self.get(name)} "
+                    "Duplicate uses of the same handler config class need to have a unique name!"
+                )
+            self.add(name, handler)
+            names_set_up.add(name)
+
     # specific, but generally useful handlers
 
     def remove_stderr_handler(self) -> None:
-        self.remove("STDERR")
+        self.remove(StreamHandlerConfig.DEFAULT_NAME)
 
     def add_stderr_handler(self) -> logging.StreamHandler:
-        handler = logging.StreamHandler(sys.stderr)
-        self.add("STDERR", handler)
-        return handler
+        return self.add_config(StreamHandlerConfig())
 
     def remove_rotating_file_handler(self) -> None:
-        self.remove("ROTFILE")
+        self.remove(RotatingFileHandlerConfig.DEFAULT_NAME)
 
     def add_rotating_file_handler(
         self, log_directory: Union[str, Path], log_file_name: str = "rotating.log", max_bytes=4096000, backup_count=8
     ) -> logging.handlers.RotatingFileHandler:
-        handler = logging.handlers.RotatingFileHandler(
-            os.path.join(log_directory, log_file_name),
-            maxBytes=max_bytes,
-            backupCount=backup_count,
-        )
-        self.add("ROTFILE", handler)
-        return handler
+        return self.add_config(RotatingFileHandlerConfig(log_directory, log_file_name, max_bytes, backup_count))
 
     def remove_file_handler(self) -> None:
-        self.remove("ONEFILE")
+        self.remove(FileHandlerConfig.DEFAULT_NAME)
 
     def add_file_handler(self, log_file: Union[str, Path]) -> logging.FileHandler:
-        handler = logging.FileHandler(log_file)
-        self.add("ONEFILE", handler)
-        return handler
+        return self.add_config(FileHandlerConfig(log_file))

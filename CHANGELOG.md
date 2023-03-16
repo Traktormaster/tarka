@@ -1,5 +1,8 @@
 # tarka
 
+## 0.12.0
+- convenient and improved logging setup
+
 ## 0.11.0
 - new utf8 utilities in `tarka.utltity.utf8`
 

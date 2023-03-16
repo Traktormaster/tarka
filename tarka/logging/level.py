@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import logging
+from typing import Union
 
 from tarka.utility.algorithm.seq import seq_closest_index
 
@@ -26,3 +29,23 @@ def calculate_named_logging_level(verbose: int = 0, silent: int = 0, default: in
     default_index = seq_closest_index(levels, default)
     delta_index = silent - verbose
     return levels[min(max(0, default_index + delta_index), len(levels) - 1)]
+
+
+class NamedLoggingLevelConfig:
+    def __init__(self, verbose: int = 0, silent: int = 0, default: int = logging.WARNING):
+        self.verbose = verbose
+        self.silent = silent
+        self.default = default
+
+    @property
+    def named_level(self) -> int:
+        return calculate_named_logging_level(self.verbose, self.silent, self.default)
+
+    @classmethod
+    def apply(cls, logger: logging.Logger, level: LoggingLevelOrNamedLoggingLevelConfig) -> None:
+        if isinstance(level, NamedLoggingLevelConfig):
+            level = level.named_level
+        logger.setLevel(level)
+
+
+LoggingLevelOrNamedLoggingLevelConfig = Union[int, NamedLoggingLevelConfig]
