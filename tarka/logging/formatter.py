@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import logging
 import logging.handlers
 from datetime import datetime
-
+from typing import Union
 
 LOGGER_FORMAT_VERBOSE = "%(asctime)s|%(levelname).1s|%(name)s:%(funcName)s:%(lineno)d| %(message)s"
 LOGGER_FORMAT_VERBOSE_THREAD = "%(asctime)s|%(thread)d|%(levelname).1s|%(name)s:%(funcName)s:%(lineno)d| %(message)s"
@@ -41,3 +43,34 @@ def create_logging_formatter(
         formatter.default_time_format = time_format
         formatter.default_msec_format = msec_format
     return formatter
+
+
+class HandlerFormatterConfig:
+    def __init__(
+        self,
+        fmt: str = None,
+        time_format: str = None,
+        msec_format: str = None,
+        concise_asctime: bool = False,
+        include_thread: bool = False,
+    ):
+        self.fmt = fmt
+        self.time_format = time_format
+        self.msec_format = msec_format
+        self.concise_asctime = concise_asctime
+        self.include_thread = include_thread
+
+    @property
+    def formatter(self) -> logging.Formatter:
+        return create_logging_formatter(
+            self.fmt, self.time_format, self.msec_format, self.concise_asctime, self.include_thread
+        )
+
+    @classmethod
+    def apply(cls, handler: logging.Handler, formatter: HandlerFormatterOrHandlerFormatterConfig) -> None:
+        if isinstance(formatter, HandlerFormatterConfig):
+            formatter = formatter.formatter
+        handler.setFormatter(formatter)
+
+
+HandlerFormatterOrHandlerFormatterConfig = Union[logging.Formatter, HandlerFormatterConfig]

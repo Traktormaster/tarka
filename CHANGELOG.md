@@ -1,5 +1,8 @@
 # tarka
 
+## 0.13.0
+- added formatter option to logging setup utility
+
 ## 0.12.0
 - convenient and improved logging setup
 
