@@ -1,5 +1,8 @@
 # tarka
 
+## 0.14.0
+- added Alembic+SQLAlchemy database utility
+
 ## 0.13.0
 - added formatter option to logging setup utility
 

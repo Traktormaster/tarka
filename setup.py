@@ -12,7 +12,7 @@ with open(os.path.join(HERE, "README.md"), encoding="utf-8") as f:
 
 requirements = defaultdict(list)
 for name in os.listdir(os.path.join(HERE, "requirements")):
-    if name not in ("base.in",):
+    if name not in ("base.in", "asqla.in"):
         continue
     reqs = requirements[name.rpartition(".")[0]]
     with open(os.path.join(HERE, "requirements", name)) as f:
@@ -56,6 +56,7 @@ setup(
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
         "Programming Language :: Python :: Implementation :: CPython",
         "Intended Audience :: Developers",
         "License :: OSI Approved :: Apache Software License",

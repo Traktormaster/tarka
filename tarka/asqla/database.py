@@ -11,7 +11,7 @@ class Database(object):
     def __init__(self, alembic_dir: str, connect_url: str):
         self.alembic_dir = alembic_dir
         self.engine = create_async_engine(connect_url)
-        self.alembic_head_at_startup = None
+        self.alembic_head_at_startup = ""
 
     def get_alembic_config(self) -> Config:
         return get_alembic_config(self.alembic_dir, str(self.engine.sync_engine.url))
@@ -39,7 +39,7 @@ class Database(object):
                 break
 
     async def _upgrade(self, alembic_helper: AlembicHelper, connection: AsyncConnection):
-        if self.alembic_head_at_startup != alembic_helper.get_head_revision():
+        if not self.alembic_head_at_startup.endswith(" (head)"):
             await self._pre_upgrade_hook(connection)
             await connection.run_sync(alembic_helper.run, "upgrade", "head")
             await self._post_upgrade_hook(connection)

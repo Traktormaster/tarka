@@ -15,8 +15,10 @@ def get_alembic_config(alembic_dir: str, sqlalchemy_url: str = None) -> Config:
     alembic_cfg.attributes["skip-logging-setup"] = True  # do not mess up the server logging
     return alembic_cfg
 
+
 class NoHeadRevision(Exception):
     pass
+
 
 class AlembicHelper:
     def __init__(self, config: Config):
