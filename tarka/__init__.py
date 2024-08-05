@@ -7,4 +7,4 @@ Tarka
 
 __copyright__ = "Copyright 2022-2023 Nándor Mátravölgyi"
 __credits__ = ["Nándor Mátravölgyi"]
-__version__ = "0.14.1"
+__version__ = "0.14.2"
