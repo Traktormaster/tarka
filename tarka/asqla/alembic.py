@@ -9,9 +9,9 @@ from sqlalchemy import Connection
 
 def get_alembic_config(alembic_dir: str, sqlalchemy_url: str = None) -> Config:
     alembic_cfg = Config(os.path.join(alembic_dir, "alembic.ini"))
-    alembic_cfg.set_main_option("script_location", alembic_dir)
+    alembic_cfg.set_main_option("script_location", alembic_dir.replace("%", "%%"))
     if sqlalchemy_url:
-        alembic_cfg.set_main_option("sqlalchemy.url", str(sqlalchemy_url))
+        alembic_cfg.set_main_option("sqlalchemy.url", str(sqlalchemy_url).replace("%", "%%"))
     alembic_cfg.attributes["skip-logging-setup"] = True  # do not mess up the server logging
     return alembic_cfg
 
