@@ -1,5 +1,11 @@
 # tarka
 
+## 0.15.0
+- added serializable transaction executor utilities for SQLA
+- added some postgres advisory lock utilities
+- testing extended to be able to run with postgresql (requires envvar config)
+- tested with Python 3.12
+
 ## 0.14.0
 - added Alembic+SQLAlchemy database utility
 

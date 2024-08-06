@@ -18,8 +18,8 @@ if config.config_file_name is not None and not config.attributes.get("skip-loggi
 
 # add your model's MetaData object here
 # for 'autogenerate' support
-from tarka_tests.asqla.model.schema import METADATA
-target_metadata = METADATA
+from tarka_tests.asqla.model.schema import Base
+target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

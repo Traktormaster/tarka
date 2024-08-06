@@ -6,7 +6,7 @@
 #    pip-compile-multi
 #
 -r test.txt
-black==24.4.2
+black==24.8.0
     # via -r requirements/dev.in
 build==1.2.1
     # via pip-tools
@@ -14,7 +14,7 @@ bump2version==1.0.1
     # via bumpversion
 bumpversion==0.6.0
     # via -r requirements/dev.in
-cachetools==5.3.3
+cachetools==5.4.0
     # via tox
 chardet==5.2.0
     # via tox
@@ -27,17 +27,17 @@ colorama==0.4.6
     # via tox
 distlib==0.3.8
     # via virtualenv
-filelock==3.14.0
+filelock==3.15.4
     # via
     #   tox
     #   virtualenv
-importlib-metadata==7.1.0
+importlib-metadata==8.2.0
     # via build
 mypy-extensions==1.0.0
     # via black
 pathspec==0.12.1
     # via black
-pip-compile-multi==2.6.3
+pip-compile-multi==2.6.4
     # via -r requirements/dev.in
 pip-tools==7.4.1
     # via
@@ -48,7 +48,7 @@ platformdirs==4.2.2
     #   black
     #   tox
     #   virtualenv
-pyproject-api==1.6.1
+pyproject-api==1.7.1
     # via tox
 pyproject-hooks==1.1.0
     # via
@@ -56,15 +56,15 @@ pyproject-hooks==1.1.0
     #   pip-tools
 toposort==1.10
     # via pip-compile-multi
-tox==4.15.0
+tox==4.17.0
     # via -r requirements/dev.in
-virtualenv==20.26.2
+virtualenv==20.26.3
     # via tox
-wheel==0.43.0
+wheel==0.44.0
     # via
     #   -r requirements/dev.in
     #   pip-tools
-zipp==3.18.1
+zipp==3.19.2
     # via importlib-metadata
 
 # The following packages are considered to be unsafe in a requirements file:

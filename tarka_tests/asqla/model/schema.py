@@ -1,14 +1,27 @@
-import sqlalchemy
+from typing import Optional
+
 from sqlalchemy import Integer, Table, Column, BigInteger, String
+from sqlalchemy.ext.asyncio import AsyncAttrs
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from tarka.asqla.types import UTCDateTime
 
-METADATA = sqlalchemy.MetaData()
+
+class Base(AsyncAttrs, DeclarativeBase):
+    pass
+
+
+class Thing(Base):
+    __tablename__ = "thing"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ext_id: Mapped[int] = mapped_column(nullable=False, index=True, unique=True)
+    value: Mapped[Optional[int]] = mapped_column(BigInteger())
 
 
 USERS_TABLE = Table(
     "users",
-    METADATA,
+    Base.metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
     Column("ext_id", Integer, nullable=False, index=True, unique=True),
     # settings data

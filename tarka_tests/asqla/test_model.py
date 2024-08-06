@@ -1,32 +1,19 @@
 import os
-from contextlib import asynccontextmanager
 
 import pytest
 from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from tarka.asqla.alembic import AlembicHelper, get_alembic_config, NoHeadRevision
-from tarka.asqla.database import Database
-from tarka_tests.asqla.model.schema import METADATA
+from tarka_tests.asqla.model.schema import Base
+from tarka_tests.asqla.testing import start_db, ALEMBIC_DIR
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-ALEMBIC_DIR = os.path.join(HERE, "model", "alembic")
 FIRST_ALEMBIC_REVISION = "a9d481fef0bd"
 
 
 def reflect_schema_table_names(conn):
     inspector = inspect(conn)
     return inspector.get_table_names()
-
-
-@asynccontextmanager
-async def start_db(db_connect_url: str):
-    db = Database(ALEMBIC_DIR, db_connect_url)
-    await db.startup()
-    try:
-        yield db
-    finally:
-        await db.shutdown()
 
 
 async def clear_db(db_connect_url: str):
@@ -41,7 +28,7 @@ async def clear_db(db_connect_url: str):
 async def create_db(db_connect_url: str, stamp: bool = True):
     engine = create_async_engine(db_connect_url)
     async with engine.begin() as conn:
-        await conn.run_sync(METADATA.create_all)
+        await conn.run_sync(Base.metadata.create_all)
         if stamp:
             await conn.run_sync(AlembicHelper(get_alembic_config(ALEMBIC_DIR)).run, "stamp", "head")
     await engine.dispose()
@@ -92,24 +79,28 @@ async def _test_migration_down_and_from(db_connect_url, bottom_revision):
             assert alembic_head == head_revision + " (head)"
 
 
-async def _revision_helper(db_connect_url: str):
+async def _revision_helper(db_connect_url: str, create=False, assert_false=True):
     try:
         AlembicHelper(get_alembic_config(ALEMBIC_DIR)).get_head_revision()
     except NoHeadRevision:
-        assert not METADATA.tables  # First revision from empty DB.
+        assert not Base.metadata.tables  # First revision from empty DB.
     else:
-        await create_db(db_connect_url)
-    assert False, f"Created DB as {db_connect_url}"
+        if create:
+            await create_db(db_connect_url)
+        else:
+            async with start_db(db_connect_url):
+                pass  # Creates schema by Alembic HEAD.
+    assert not assert_false, f"Created DB as {db_connect_url}"
 
 
+@pytest.mark.order(10)
 @pytest.mark.asyncio
-async def test_model_asqla(tmp_path):
-    db_connect_url = f"sqlite+aiosqlite:///{(tmp_path / 'xy.db').as_posix()}"
+async def test_model_asqla(db_connect_url):
     await clear_db(db_connect_url)
     # Database schema update+auto_revision:
-    #   1. Uncomment the one lines of code below and run the test
-    #   2. Set the db_connect_url of the test just run in the alembic.ini file
-    #   3. Change schema.py
+    #   1. Uncomment the one line of code below and run the test to generate the current Alembic HEAD
+    #   2. Set the db_connect_url of the test just run in the alembic.ini file if necessary
+    #   3. Change schema.py (may have already been changed, unless create=True is used with _revision_helper)
     #   4. Call 'alembic revision --autogenerate -m "description"' to create the revision
     #   5. Revert temporary changes of 1 and 2.
     # await _revision_helper(db_connect_url)

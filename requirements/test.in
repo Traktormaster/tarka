@@ -1,6 +1,8 @@
 -r base.in
 -r asqla.in
 aiosqlite
+asyncpg
 pytest
 pytest-asyncio
 pytest-cov
+pytest-order
