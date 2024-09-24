@@ -1,5 +1,9 @@
 # tarka
 
+## 0.17.0
+- added some module loading utilities
+- added a package data accessor utility
+
 ## 0.15.0
 - added serializable transaction executor utilities for SQLA
 - added some postgres advisory lock utilities
