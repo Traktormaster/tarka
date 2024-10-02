@@ -1,9 +1,12 @@
 import json
+import os
 import subprocess
 import sys
 import warnings
 
-from tarka.utility.importing import import_optional
+from tarka.utility.importing import import_optional, IsolatedPackageImport
+
+HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 def _run(tmp_path, import_path: str):
@@ -37,3 +40,21 @@ def test_import_optional():
         assert "Can't import optional tarka_tests.utility.importing.d1" in str(w[-1].message)
         assert import_optional("tarka_tests.utility.importing.d2", False) is None
         assert len(w) == 1
+
+
+def test_isolated_package_import():
+    ipi = IsolatedPackageImport.create(os.path.join(HERE, "isolated", "main.py"))
+    abs_part = ipi.package_name[8:-18]
+    assert ipi.package_name == "__main__" + abs_part + "isolated%2Fmain_py"
+    assert sorted(k.replace(abs_part, "/") for k in sys.modules.keys() if k.startswith(ipi.package_name)) == [
+        "__main__/isolated%2Fmain_py",
+        "__main__/isolated%2Fmain_py.config",
+        "__main__/isolated%2Fmain_py.lib",
+        "__main__/isolated%2Fmain_py.lib.base",
+        "__main__/isolated%2Fmain_py.lib.work",
+        "__main__/isolated%2Fmain_py.main",
+        "__main__/isolated%2Fmain_py.util",
+    ]
+    print(ipi.module.call())
+    ipi.unload()
+    assert not sorted(k for k in sys.modules.keys() if k.startswith(ipi.package_name))

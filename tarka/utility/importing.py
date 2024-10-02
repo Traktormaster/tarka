@@ -1,10 +1,13 @@
 import os
+import sys
 import warnings
 from importlib import import_module
 from importlib.machinery import EXTENSION_SUFFIXES, SOURCE_SUFFIXES, BYTECODE_SUFFIXES
+from importlib.util import spec_from_file_location, module_from_spec
 from itertools import chain
 from types import ModuleType
 from typing import Sequence, Optional
+from urllib.parse import quote
 
 
 def forward_import_recursively(package_module_path: str, skip_dir_names: Sequence[str] = ("__pycache__",)):
@@ -44,3 +47,46 @@ def import_optional(import_path: str, warn_error: bool = True) -> Optional[Modul
     except ImportError:
         if warn_error:
             warnings.warn(f"Can't import optional {import_path}")
+
+
+class IsolatedPackageImport:
+    """
+    This can be used to import modules on an arbitrary absolute path and have them all under an isolated package if
+    they are imported with relative paths.
+    """
+
+    @classmethod
+    def create(cls, root_module_path: str):
+        # create fake package (for relative imports)
+        package_name = "__main__" + quote(root_module_path, safe="").replace(".", "_")
+        package_module = ModuleType(package_name)
+        package_module.__path__ = [os.path.dirname(root_module_path)]
+        package_module.__file__ = os.path.join(package_module.__path__[0], "__init__.py")
+        sys.modules[package_name] = package_module
+        try:
+            # import main module under fake package
+            module_name = package_name + "." + os.path.basename(root_module_path).rpartition(".")[0]
+            spec = spec_from_file_location(module_name, root_module_path)
+            main_module = module_from_spec(spec)
+            sys.modules[module_name] = main_module
+            try:
+                spec.loader.exec_module(main_module)
+            except:
+                del sys.modules[module_name]
+                raise
+        except:
+            del sys.modules[package_name]
+            raise
+        return cls(package_name, main_module)
+
+    def __init__(self, pacakge_name: str, module: ModuleType):
+        self.package_name = pacakge_name
+        self.module = module
+
+    def unload(self):
+        # NOTE: This only ensures that a subsequent import will be clean, provided that all submodules were imported
+        # with relative imports.
+        for k in list(sys.modules.keys()):
+            if k.startswith(self.package_name):
+                if len(k) == len(self.package_name) or k[len(self.package_name)] == ".":
+                    del sys.modules[k]

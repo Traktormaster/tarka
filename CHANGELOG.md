@@ -1,5 +1,8 @@
 # tarka
 
+## 0.18.0
+- added an isolated module loader utility from arbitrary absolute path
+
 ## 0.17.0
 - added some module loading utilities
 - added a package data accessor utility
