@@ -1,5 +1,8 @@
 # tarka
 
+## 0.19.0
+- relaxed recursive forward import utility to pass on unconventional modules
+
 ## 0.18.0
 - added an isolated module loader utility from arbitrary absolute path
 

@@ -15,9 +15,9 @@ def forward_import_recursively(package_module_path: str, skip_dir_names: Sequenc
     This can be utilized to load plugin-like solutions and structures that utilize subclass-hook for example.
     """
     package_init = import_module(package_module_path).__file__
-    if os.path.splitext(os.path.basename(package_init))[0] != "__init__":
-        raise Exception(f"Failed forward import for {package_module_path}")
     package_dir_path = os.path.dirname(package_init)
+    if os.path.splitext(os.path.basename(package_init))[0] != "__init__" or not os.path.isdir(package_dir_path):
+        return  # Imported module is not a traditional python package (directory with __init__ module)
     for root, dirs, files in os.walk(package_dir_path):
         if os.path.basename(root) in skip_dir_names:
             continue
