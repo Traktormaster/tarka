@@ -1,7 +1,9 @@
 -r test.in
 black
+build
 bumpversion
 pip-tools
 pip-compile-multi
 tox
+twine
 wheel

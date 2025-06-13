@@ -26,7 +26,18 @@ class AbstractTransactionExecutor:
                 return await self._run_tx()
             except OperationalError as e:
                 # SQLite: This catches locking errors in both the rollback and WAL modes.
-                if isinstance(e.orig, sqlite3.OperationalError) and e.orig.args == ("database is locked",):
+                if (
+                    isinstance(e.orig, sqlite3.OperationalError)
+                    and isinstance(e.orig.args, tuple)
+                    and len(e.orig.args) == 1
+                    and e.orig.args[0]
+                    in (
+                        "database is locked",  # normal transaction is in progress
+                        # Rarely happens when transactions are competing with "BEGIN (DEFERRED)" transactions.
+                        # Read https://sqlite.org/forum/forumpost/2507664507 for example and more info.
+                        "cannot start a transaction within a transaction",
+                    )
+                ):
                     pass
                 else:
                     raise e
@@ -90,4 +101,6 @@ class SessionTransactionExecutor(AbstractTransactionExecutor):
     async def _run_tx(self) -> Any:
         async with self.session_maker(**self._session_maker_kwargs) as session:
             async with session.begin():
+                # TODO: The @event.listens_for(self.serializable_engine.sync_engine, "begin") hook for aiosqlite is
+                #       not called here immediately, so the "BEGIN IMMEDIATE" tx mode does not work well.
                 return await self._check_run_tx(self.tx_factory(session))

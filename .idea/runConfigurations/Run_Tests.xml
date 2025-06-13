@@ -1,10 +1,12 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="Run Tests" type="tests" factoryName="py.test">
     <module name="tarka" />
+    <option name="ENV_FILES" value="" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
     <envs>
       <env name="ALLOW_TESTS_IMPORT" value="1" />
+      <env name="XTARKA_TESTING_POSTGRESQL_CONNECT_URL" value="postgresql+asyncpg:///tester?user=tester&amp;host=/var/run/postgresql" />
     </envs>
     <option name="SDK_HOME" value="" />
     <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />

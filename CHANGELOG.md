@@ -1,5 +1,10 @@
 # tarka
 
+## 0.19.1
+- Python 3.13 compatibility
+- Some improvements to asqla module
+- Modernized packaging a little bit
+
 ## 0.19.0
 - relaxed recursive forward import utility to pass on unconventional modules
 

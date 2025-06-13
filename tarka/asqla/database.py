@@ -1,6 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
-from typing import Type, Dict, Any
+from typing import Type, Dict, Any, Optional
 
 from alembic.config import Config
 from sqlalchemy import event
@@ -29,12 +29,19 @@ class Database(object):
         engine_kwargs: Dict[str, Any] = None,  # like echo, connect_args, etc.
         session_maker_kwargs: Dict[str, Any] = None,  # like expire_on_commit, autoflush, etc.
         aiosqlite_serializable_begin: str = "BEGIN",  # serializable tx support workaround for aiosqlite
+        tx_retry_delay: Optional[float] = None,  # tx retry delay helps to relieve db pressure at conflicts
     ):
+        """
+        If aiosqlite is used aiosqlite_serializable_begin="BEGIN IMMEDIATE" could be better, because then no
+        conflicts can happen, each tx caller will wait in line to acquire the lock and no resources will be
+        wasted retrying. However, this does not work well with session-tx, see TODO: tx.py:105.
+        """
         self.alembic_dir = alembic_dir
         self._connect_url = connect_url
         self._engine_kwargs = engine_kwargs
         self._session_maker_kwargs = session_maker_kwargs
         self._aiosqlite_serializable_begin = aiosqlite_serializable_begin
+        self._tx_retry_delay = tx_retry_delay
         self.alembic_head_at_startup = ""
 
     def get_alembic_config(self) -> Config:
@@ -130,14 +137,25 @@ class Database(object):
         finally:
             await self.shutdown()
 
-    def serializable_tx(self, tx_factory: RetryableTransactionFactory) -> TransactionExecutor:
+    def serializable_tx(
+        self, tx_factory: RetryableTransactionFactory, retry_delay: Optional[float] = None
+    ) -> TransactionExecutor:
         """
         Get a transaction executor with SERIALIZABLE isolation_level and automatic retry.
         """
-        return TransactionExecutor(self.serializable_engine, tx_factory)
+        return TransactionExecutor(
+            self.serializable_engine, tx_factory, retry_delay=retry_delay or self._tx_retry_delay
+        )
 
-    def session_serializable_tx(self, tx_factory: RetryableSessionTransactionFactory) -> SessionTransactionExecutor:
+    def session_serializable_tx(
+        self, tx_factory: RetryableSessionTransactionFactory, retry_delay: Optional[float] = None
+    ) -> SessionTransactionExecutor:
         """
         Get an ORM transaction executor with SERIALIZABLE isolation_level and automatic retry.
         """
-        return SessionTransactionExecutor(self.session_maker, tx_factory, engine=self.serializable_engine)
+        return SessionTransactionExecutor(
+            self.session_maker,
+            tx_factory,
+            engine=self.serializable_engine,
+            retry_delay=retry_delay or self._tx_retry_delay,
+        )

@@ -21,7 +21,7 @@ async def clear_db(db_connect_url: str):
     async with engine.begin() as conn:
         table_names = await conn.run_sync(reflect_schema_table_names)
         for table_name in table_names:
-            await conn.execute(text(f"DROP TABLE IF EXISTS {table_name}"))
+            await conn.execute(text(f'DROP TABLE IF EXISTS "{table_name}" CASCADE'))
     await engine.dispose()
 
 
