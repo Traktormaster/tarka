@@ -1,24 +1,14 @@
+from __future__ import annotations
+
 import asyncio
 import sqlite3
 import time
-from contextlib import contextmanager, asynccontextmanager
-from functools import partial
-import queue
-from typing import Callable, Optional, Any, Sequence, TypeVar, Type, AsyncContextManager
+from contextlib import contextmanager
+from typing import Callable, Optional, Any, Sequence
 
 import wait_for2
 
-from tarka.utility.thread import AbstractThread
-
-
-def _callback_result(future: asyncio.Future, result):
-    if not future.done():
-        future.set_result(result)
-
-
-def _callback_exception(future: asyncio.Future, exc):
-    if not future.done():
-        future.set_exception(exc)
+from tarka.utility.aio_worker import AbstractAioWorker, AbstractAioWorkerJob
 
 
 def sqlite_retry(
@@ -53,10 +43,32 @@ def sqlite_retry(
             wait_time *= wait_multiplier
 
 
-_ClsT = TypeVar("_ClsT")
+class AioSQLiteJob(AbstractAioWorkerJob):
+    __slots__ = ("process_fn", "args", "post_process_fn", "begin_immediate")
+
+    def __init__(
+        self,
+        future: asyncio.Future,
+        process_fn: Callable[[AbstractAioSQLiteDatabase, ...], Any],
+        args,
+        post_process_fn: Callable[[AbstractAioSQLiteDatabase], None],
+        begin_immediate: bool,
+    ):
+        AbstractAioWorkerJob.__init__(self, future)
+        self.process_fn = process_fn
+        self.args = args
+        self.post_process_fn = post_process_fn
+        self.begin_immediate = begin_immediate
+
+    def execute(self, worker: AbstractAioSQLiteDatabase) -> Any:
+        with worker._transact(self.begin_immediate):
+            result = self.process_fn(worker, *self.args)
+        if self.post_process_fn:
+            self.post_process_fn(worker)
+        return result
 
 
-class AbstractAioSQLiteDatabase(AbstractThread):
+class AbstractAioSQLiteDatabase(AbstractAioWorker):
     """
     Provide a lightweight asyncio compatible, customizable interface to an arbitrary SQLite database in a safe way.
     All SQL connection operations are restricted to be executed on the worker thread, guaranteeing serialization
@@ -72,42 +84,12 @@ class AbstractAioSQLiteDatabase(AbstractThread):
 
     """
 
-    __slots__ = ("_loop", "_con", "_request_queue", "_timeout", "started", "closed")
-
-    @classmethod
-    @asynccontextmanager
-    async def create(cls: Type[_ClsT], *args, **kwargs) -> AsyncContextManager[_ClsT]:
-        """
-        Strict start-stop helper for automatic cleanup.
-        """
-        self = cls(*args, **kwargs)
-        try:
-            self.start()
-            await self.wait_ready()
-            yield self
-        finally:
-            self.stop()
+    __slots__ = ("_con", "_timeout")
 
     def __init__(self, sqlite_db_path: str, sqlite_timeout: float = 60.0):
-        self._loop = asyncio.get_running_loop()
         self._con: sqlite3.Connection = None
-        self._request_queue: queue.Queue = None
         self._timeout = sqlite_timeout
-        AbstractThread.__init__(self, (sqlite_db_path,))
-        self.started = asyncio.Event()
-        self.closed = asyncio.Event()
-
-    async def wait_ready(self):
-        if self.is_alive():  # only wait for start/stop if the worker thread has been started
-            started_task = self._loop.create_task(self.started.wait())
-            closed_task = self._loop.create_task(self.closed.wait())
-            _, pending = await asyncio.wait([started_task, closed_task], return_when=asyncio.FIRST_COMPLETED)
-            if pending:  # cleanup tasks to avoid them being logged as abandoned
-                for t in pending:
-                    t.cancel()
-                await asyncio.gather(*pending, return_exceptions=True)
-        if self.closed.is_set() or not self.started.is_set():
-            raise Exception(f"SQLite connection could not start for {self.__class__.__name__}")
+        AbstractAioWorker.__init__(self, (sqlite_db_path,))
 
     def start(
         self,
@@ -118,64 +100,23 @@ class AbstractAioSQLiteDatabase(AbstractThread):
     ):
         if args is not None:  # pragma: no cover
             raise ValueError("SQLite worker does not support custom args at start.")
-        if callback is not None:  # pragma: no cover
-            raise ValueError("SQLite worker does not support custom callback. Use the 'closed' event.")
-        if daemon not in (None, False):  # pragma: no cover
-            raise ValueError("SQLite worker must not be daemon to ensure cleanup.")
-        self._request_queue = queue.Queue()
-        AbstractThread.start(self, None, partial(self._loop.call_soon_threadsafe, self.closed.set), False, name_prefix)
+        AbstractAioWorker.start(self, None, callback, daemon, name_prefix)
 
-    def stop(self, timeout: Optional[float] = 0) -> bool:
-        """
-        The default timeout is zero, we assume the .closed event will be used to wait for cleanup in asyncio.
-        """
-        q = self._request_queue  # saving a reference resolves race-conditions with worker thread
-        if q is not None:
-            q.put_nowait(None)
-        return AbstractThread.stop(self, timeout)
-
-    def _thread(self, db_path: str) -> None:
-        """
-        SQLite connection and request executor thread.
-        """
+    def _thread_init(self, db_path: str):
         self._con = sqlite3.connect(db_path, timeout=self._timeout, isolation_level=None)
-        try:
-            # initialise the db
-            self._initialise()
-            with self._transact(begin_immediate=True):
-                self._setup()
-            self._loop.call_soon_threadsafe(self.started.set)
-            # run job queue
-            while True:
-                job = self._request_queue.get()
-                if job is None:
-                    break
-                process_fn, args, post_process_fn, aio_future, begin_immediate = job
-                if aio_future.done():  # Could have been cancelled before we got to it.
-                    continue
-                try:
-                    with self._transact(begin_immediate):
-                        result = process_fn(self, *args)
-                    if post_process_fn:
-                        post_process_fn(self)
-                    self._loop.call_soon_threadsafe(_callback_result, aio_future, result)
-                except Exception as e:
-                    self._loop.call_soon_threadsafe(_callback_exception, aio_future, e)
-        finally:
-            # prevent more jobs to be queued
-            q = self._request_queue
-            self._request_queue = None
-            # notify dead jobs if any
-            try:
-                while True:
-                    job = q.get_nowait()
-                    if job:
-                        job[3].cancel()
-            except queue.Empty:
-                pass
-            # close the database
-            con = self._con
-            self._con = None
+        # initialise the db
+        self._initialise()
+        with self._transact(begin_immediate=True):
+            self._setup()
+
+    def _thread_poll(self):
+        pass  # Not used.
+
+    def _thread_cleanup(self):
+        # close the database
+        con = self._con
+        self._con = None
+        if con:
             con.close()
 
     @contextmanager
@@ -210,7 +151,7 @@ class AbstractAioSQLiteDatabase(AbstractThread):
         This will raise AttributeError if the database has been closed.
         """
         f = self._loop.create_future()
-        self._request_queue.put_nowait((process_fn, args, post_process_fn, f, begin_immediate))
+        self._request_queue.put_nowait(AioSQLiteJob(f, process_fn, args, post_process_fn, begin_immediate))
         return await wait_for2.wait_for(f, timeout)
 
     def _initialise(self):
@@ -257,3 +198,6 @@ class AbstractAioSQLiteDatabase(AbstractThread):
         Keep in mind though, that if more durability is required, the synchronous pragma could be tuned instead.
         """
         sqlite_retry(self._checkpoint, retry_timeout=-self._timeout)
+
+    async def _method_job(self, *args, **kwargs):
+        raise RuntimeError("Use ._run_job() instead.")

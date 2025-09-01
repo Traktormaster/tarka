@@ -1,5 +1,8 @@
 # tarka
 
+## 0.20.0
+- generalized aio-compatible thread-worker utility
+
 ## 0.19.1
 - Python 3.13 compatibility
 - Some improvements to asqla module
