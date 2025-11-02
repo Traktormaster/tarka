@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import sqlite3
 import time
 from contextlib import contextmanager
@@ -8,7 +7,13 @@ from typing import Callable, Optional, Any, Sequence
 
 import wait_for2
 
-from tarka.utility.aio_worker import AbstractAioWorker, AbstractAioWorkerJob
+from tarka.utility.aio_worker import (
+    AbstractAioWorker,
+    AbstractAioWorkerJob,
+    AbstractAioWorkerJobFuture,
+    AioWorkerJobFuture,
+    ThreadWorkerJobFuture,
+)
 
 
 def sqlite_retry(
@@ -48,7 +53,7 @@ class AioSQLiteJob(AbstractAioWorkerJob):
 
     def __init__(
         self,
-        future: asyncio.Future,
+        future: AbstractAioWorkerJobFuture,
         process_fn: Callable[[AbstractAioSQLiteDatabase, ...], Any],
         args,
         post_process_fn: Callable[[AbstractAioSQLiteDatabase], None],
@@ -151,8 +156,31 @@ class AbstractAioSQLiteDatabase(AbstractAioWorker):
         This will raise AttributeError if the database has been closed.
         """
         f = self._loop.create_future()
-        self._request_queue.put_nowait(AioSQLiteJob(f, process_fn, args, post_process_fn, begin_immediate))
+        self._request_queue.put_nowait(
+            AioSQLiteJob(AioWorkerJobFuture(f), process_fn, args, post_process_fn, begin_immediate)
+        )
         return await wait_for2.wait_for(f, timeout)
+
+    def _run_call(
+        self,
+        process_fn: Callable,
+        *args,
+        post_process_fn: Optional[Callable] = None,
+        begin_immediate: bool = True,
+        timeout: Optional[float] = None,
+    ):
+        """
+        This is designed to be used as
+
+            get_xy = partialmethod(AbstractAioSQLiteDatabase._run_call, _get_xy_impl)
+
+        which means the wrapped function is not yet bound in the expression. The self argument is automatically
+        passed by the worker thread to make it work.
+        This will raise AttributeError if the database has been closed.
+        """
+        jf = ThreadWorkerJobFuture()
+        self._request_queue.put_nowait(AioSQLiteJob(jf, process_fn, args, post_process_fn, begin_immediate))
+        return jf.get_result(timeout)
 
     def _initialise(self):
         """
@@ -201,3 +229,6 @@ class AbstractAioSQLiteDatabase(AbstractAioWorker):
 
     async def _method_job(self, *args, **kwargs):
         raise RuntimeError("Use ._run_job() instead.")
+
+    async def _method_call(self, *args, **kwargs):
+        raise RuntimeError("Use ._run_call() instead.")

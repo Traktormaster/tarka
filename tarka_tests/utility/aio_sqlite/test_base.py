@@ -74,6 +74,12 @@ class _TestingAioSQLiteDatabase(AbstractAioSQLiteDatabase):
     get_all = partialmethod(AbstractAioSQLiteDatabase._run_job, _get_all_impl)
     get_old = partialmethod(AbstractAioSQLiteDatabase._run_job, _get_old_impl)
 
+    sync_insert = partialmethod(AbstractAioSQLiteDatabase._run_call, _insert_impl)
+    sync_update = partialmethod(AbstractAioSQLiteDatabase._run_call, _update_impl)
+    sync_get = partialmethod(AbstractAioSQLiteDatabase._run_call, _get_impl)
+    sync_get_all = partialmethod(AbstractAioSQLiteDatabase._run_call, _get_all_impl)
+    sync_get_old = partialmethod(AbstractAioSQLiteDatabase._run_call, _get_old_impl)
+
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("wal", [False, True])
@@ -82,32 +88,58 @@ async def test_aio_sqlite_base(tmpdir, wal):
     db = _TestingAioSQLiteDatabase(*args)
     with pytest.raises(AttributeError):
         await db.get_all()
+    with pytest.raises(AttributeError):
+        db.sync_get_all()
     async with _TestingAioSQLiteDatabase.create(*args) as db:
         # this go according to plan
         assert await db.get_all() == []
+        assert db.sync_get_all() == []
         r2 = (5555, "/asdf/0", b"test", 9990.5)
         assert await db.get(*r2[:2]) is None
+        assert db.sync_get(*r2[:2]) is None
         await db.insert(*r2)
         assert await db.get_all() == [r2]
+        assert db.sync_get_all() == [r2]
         assert await db.get(*r2[:2]) == r2[2:]
+        assert db.sync_get(*r2[:2]) == r2[2:]
         assert await db.get_old() == [r2]
+        assert db.sync_get_old() == [r2]
         r0 = (2555, "/asdf/0", b"test5", 9999.5)
-        await db.insert(*r0)
+        db.sync_insert(*r0)
         assert await db.get_all() == [r0, r2]
+        assert db.sync_get_all() == [r0, r2]
         assert await db.get(*r0[:2]) == r0[2:]
+        assert db.sync_get(*r0[:2]) == r0[2:]
         assert await db.get_old() == [r2, r0]
+        assert db.sync_get_old() == [r2, r0]
         r1 = (4000, "/tmp/go", b"asdf", 20.0)
         await db.insert(*r1)
         assert await db.get_all() == [r0, r1, r2]
+        assert db.sync_get_all() == [r0, r1, r2]
         assert await db.get(*r1[:2]) == r1[2:]
+        assert db.sync_get(*r1[:2]) == r1[2:]
         assert await db.get_old() == [r1, r2, r0]
+        assert db.sync_get_old() == [r1, r2, r0]
         assert await db.get_old(1) == [r1]
+        assert db.sync_get_old(1) == [r1]
         assert await db.get_old(2) == [r1, r2]
+        assert db.sync_get_old(2) == [r1, r2]
+        r1 = r1[:2] + (b"whut", 550000.7)
+        db.sync_update(*r1)
+        assert await db.get_all() == [r0, r1, r2]
+        assert db.sync_get_all() == [r0, r1, r2]
+        assert await db.get(*r1[:2]) == r1[2:]
+        assert db.sync_get(*r1[:2]) == r1[2:]
+        assert await db.get_old() == [r2, r0, r1]
+        assert db.sync_get_old() == [r2, r0, r1]
         r1 = r1[:2] + (b"gogo", 50000.7)
         await db.update(*r1)
         assert await db.get_all() == [r0, r1, r2]
+        assert db.sync_get_all() == [r0, r1, r2]
         assert await db.get(*r1[:2]) == r1[2:]
+        assert db.sync_get(*r1[:2]) == r1[2:]
         assert await db.get_old() == [r2, r0, r1]
+        assert db.sync_get_old() == [r2, r0, r1]
 
         # test different errors
         rx = (7000, "/tmp/where", b"op", 500.0)

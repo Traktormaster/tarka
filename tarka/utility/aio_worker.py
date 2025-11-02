@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
 import queue
+import threading
 import time
 from contextlib import asynccontextmanager
 from functools import partial
@@ -21,19 +22,100 @@ def _callback_exception(future: asyncio.Future, exc):
         future.set_exception(exc)
 
 
+class AbstractAioWorkerJobFuture:
+    __slots__ = ()
+
+    def done(self) -> bool:
+        raise NotImplementedError()
+
+    def cancel(self):
+        raise NotImplementedError()
+
+    def set_result(self, result):
+        raise NotImplementedError()
+
+    def set_exception(self, exc):
+        raise NotImplementedError()
+
+
+class AioWorkerJobFuture(AbstractAioWorkerJobFuture):
+    __slots__ = ("future",)
+
+    def __init__(self, future: asyncio.Future):
+        self.future = future
+
+    def done(self) -> bool:
+        return self.future.done()
+
+    def cancel(self):
+        return self.future.cancel()
+
+    def set_result(self, result):
+        self.future.get_loop().call_soon_threadsafe(_callback_result, self.future, result)
+
+    def set_exception(self, exc):
+        self.future.get_loop().call_soon_threadsafe(_callback_exception, self.future, exc)
+
+
+class ThreadWorkerJobFuture(AbstractAioWorkerJobFuture):
+    __slots__ = ("event", "result", "state")
+
+    STATE_WAIT = 0
+    STATE_RESULT = 1
+    STATE_EXCEPTION = 2
+    STATE_CANCEL = 3
+
+    def __init__(self):
+        self.event = threading.Event()
+        self.result = None
+        self.state = self.STATE_WAIT
+
+    def done(self) -> bool:
+        return bool(self.state)
+
+    def cancel(self):
+        if self.state == self.STATE_WAIT:
+            self.state = self.STATE_CANCEL
+            self.event.set()
+
+    def set_result(self, result):
+        self.result = result
+        self.state = self.STATE_RESULT
+        self.event.set()
+
+    def set_exception(self, exc):
+        self.result = exc
+        self.state = self.STATE_EXCEPTION
+        self.event.set()
+
+    def get_result(self, timeout=None):
+        if not self.event.wait(timeout):
+            self.cancel()
+            raise TimeoutError
+        if self.state == self.STATE_WAIT:
+            raise Exception("Job result is not set")
+        elif self.state == self.STATE_CANCEL:
+            raise Exception("Job result is cancelled")
+        elif self.state == self.STATE_RESULT:
+            return self.result
+        elif not isinstance(self.result, Exception):
+            raise Exception(f"Job result is not an exception: {self.result}")
+        raise self.result
+
+
 class AbstractAioWorkerJob:
     __slots__ = ("future",)
 
     execute: Callable[[AbstractAioWorker], Any]
 
-    def __init__(self, future: asyncio.Future):
+    def __init__(self, future: AbstractAioWorkerJobFuture):
         self.future = future
 
 
 class PartialMethodAioWorkerJob(AbstractAioWorkerJob):
     __slots__ = ("impl_fn", "args")
 
-    def __init__(self, future: asyncio.Future, impl_fn: Callable[[AbstractAioWorker, ...], Any], args):
+    def __init__(self, future: AbstractAioWorkerJobFuture, impl_fn: Callable[[AbstractAioWorker, ...], Any], args):
         AbstractAioWorkerJob.__init__(self, future)
         self.impl_fn = impl_fn
         self.args = args
@@ -148,9 +230,9 @@ class AbstractAioWorker(AbstractThread):
                     continue
                 try:
                     result = job.execute(self)
-                    self._loop.call_soon_threadsafe(_callback_result, job.future, result)
+                    job.future.set_result(result)
                 except Exception as e:
-                    self._loop.call_soon_threadsafe(_callback_exception, job.future, e)
+                    job.future.set_exception(e)
         finally:
             # prevent more jobs to be queued
             q = self._request_queue
@@ -193,5 +275,18 @@ class AbstractAioWorker(AbstractThread):
         passed by the worker thread to make it work.
         """
         f = self._loop.create_future()
-        self._request_queue.put_nowait(PartialMethodAioWorkerJob(f, impl_fn, args))
+        self._request_queue.put_nowait(PartialMethodAioWorkerJob(AioWorkerJobFuture(f), impl_fn, args))
         return await wait_for2.wait_for(f, timeout)
+
+    def _method_call(self, impl_fn: Callable, *args, timeout: Optional[float] = None) -> Any:
+        """
+        This is designed to be used as
+
+            get_xy = partialmethod(AbstractAioWorker._method_call, _get_xy_impl)
+
+        which means the wrapped function is not yet bound in the expression. The self argument is automatically
+        passed by the worker thread to make it work.
+        """
+        jf = ThreadWorkerJobFuture()
+        self._request_queue.put_nowait(PartialMethodAioWorkerJob(jf, impl_fn, args))
+        return jf.get_result(timeout)

@@ -1,5 +1,8 @@
 # tarka
 
+## 0.21.0
+- added thread-caller compatibility to aio-compatible thread-worker
+
 ## 0.20.0
 - generalized aio-compatible thread-worker utility
 
