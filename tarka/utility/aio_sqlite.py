@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 import time
 from contextlib import contextmanager
@@ -7,13 +8,7 @@ from typing import Callable, Optional, Any, Sequence
 
 import wait_for2
 
-from tarka.utility.aio_worker import (
-    AbstractAioWorker,
-    AbstractAioWorkerJob,
-    AbstractAioWorkerJobFuture,
-    AioWorkerJobFuture,
-    ThreadWorkerJobFuture,
-)
+from tarka.utility.aio_worker import AbstractAioWorker, AbstractAioWorkerJob, AbstractThreadWorkerJob
 
 
 def sqlite_retry(
@@ -48,12 +43,36 @@ def sqlite_retry(
             wait_time *= wait_multiplier
 
 
+class ThreadSQLiteJob(AbstractThreadWorkerJob):
+    __slots__ = ("process_fn", "args", "post_process_fn", "begin_immediate")
+
+    def __init__(
+        self,
+        process_fn: Callable[[AbstractAioSQLiteDatabase, ...], Any],
+        args,
+        post_process_fn: Callable[[AbstractAioSQLiteDatabase], None],
+        begin_immediate: bool,
+    ):
+        AbstractThreadWorkerJob.__init__(self)
+        self.process_fn = process_fn
+        self.args = args
+        self.post_process_fn = post_process_fn
+        self.begin_immediate = begin_immediate
+
+    def execute(self, worker: AbstractAioSQLiteDatabase) -> Any:
+        with worker._transact(self.begin_immediate):
+            result = self.process_fn(worker, *self.args)
+        if self.post_process_fn:
+            self.post_process_fn(worker)
+        return result
+
+
 class AioSQLiteJob(AbstractAioWorkerJob):
     __slots__ = ("process_fn", "args", "post_process_fn", "begin_immediate")
 
     def __init__(
         self,
-        future: AbstractAioWorkerJobFuture,
+        future: asyncio.Future,
         process_fn: Callable[[AbstractAioSQLiteDatabase, ...], Any],
         args,
         post_process_fn: Callable[[AbstractAioSQLiteDatabase], None],
@@ -156,9 +175,7 @@ class AbstractAioSQLiteDatabase(AbstractAioWorker):
         This will raise AttributeError if the database has been closed.
         """
         f = self._loop.create_future()
-        self._request_queue.put_nowait(
-            AioSQLiteJob(AioWorkerJobFuture(f), process_fn, args, post_process_fn, begin_immediate)
-        )
+        self._request_queue.put_nowait(AioSQLiteJob(f, process_fn, args, post_process_fn, begin_immediate))
         return await wait_for2.wait_for(f, timeout)
 
     def _run_call(
@@ -178,9 +195,9 @@ class AbstractAioSQLiteDatabase(AbstractAioWorker):
         passed by the worker thread to make it work.
         This will raise AttributeError if the database has been closed.
         """
-        jf = ThreadWorkerJobFuture()
-        self._request_queue.put_nowait(AioSQLiteJob(jf, process_fn, args, post_process_fn, begin_immediate))
-        return jf.get_result(timeout)
+        job = ThreadSQLiteJob(process_fn, args, post_process_fn, begin_immediate)
+        self._request_queue.put_nowait(job)
+        return job.get_result(timeout)
 
     def _initialise(self):
         """

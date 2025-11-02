@@ -1,5 +1,8 @@
 # tarka
 
+## 0.22.0
+- fix aio backwards compatibility of thread-worker
+
 ## 0.21.0
 - added thread-caller compatibility to aio-compatible thread-worker
 
