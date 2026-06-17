@@ -9,7 +9,10 @@ def test_logging_hook():
         assert e.returncode == 1
         assert e.stdout.find("Unhandled exception in <Thread(Thread-1") >= 0, str(e.stdout)
         assert e.stdout.find("Exception: Sad thread") >= 0, str(e.stdout)
-        assert e.stdout.find("Exception ignored in: <function _BadDel.__del__ at") >= 0, str(e.stdout)
+        assert (
+            e.stdout.find("Exception ignored in: <function _BadDel.__del__ at") >= 0
+            or e.stdout.find("Exception ignored while calling deallocator <function _BadDel.__del__ at") >= 0
+        ), str(e.stdout)
         assert e.stdout.find("Exception: Bad del") >= 0, str(e.stdout)
         assert e.stdout.find("Unhandled exception\n") >= 0, str(e.stdout)
         assert e.stdout.find("Exception: Sad main") >= 0, str(e.stdout)

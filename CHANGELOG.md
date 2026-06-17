@@ -1,5 +1,10 @@
 # tarka
 
+## 0.23.0
+- add aio subprocess utilities
+- Python 3.14 compatibility
+- Python 3.9 dropped from testing
+
 ## 0.22.0
 - fix aio backwards compatibility of thread-worker
 
