@@ -22,6 +22,22 @@ async def test_subprocess_aio_output():
         "err": b"err line 0\nerr line 1\nerr line 2\nerr line 3\nerr line 4\n",
         "rc": 0,
     }
+    r = await call_subprocess_for_output(
+        sys.executable, os.path.abspath(__file__), "--add_input", "--", "5", input_=" \n 1\n2\r\n"
+    )
+    assert r == {
+        "out": "out line 3\nout line 4\nout line 5\nout line 6\nout line 7\n",
+        "err": "err line 3\nerr line 4\nerr line 5\nerr line 6\nerr line 7\n",
+        "rc": 0,
+    }
+    r = await call_subprocess_for_output(
+        sys.executable, os.path.abspath(__file__), "--add_input", "--", "5", input_=b" \n 0\n4\r\n"
+    )
+    assert r == {
+        "out": "out line 4\nout line 5\nout line 6\nout line 7\nout line 8\n",
+        "err": "err line 4\nerr line 5\nerr line 6\nerr line 7\nerr line 8\n",
+        "rc": 0,
+    }
 
 
 @pytest.mark.asyncio
@@ -38,8 +54,14 @@ async def test_subprocess_aio_stream():
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("lines", type=int)
+    parser.add_argument("--add_input", action="store_true")
     args = parser.parse_args()
     i = 0
+    if args.add_input:
+        for line in sys.stdin.read().splitlines():
+            line = line.strip()
+            if line:
+                i += int(line)
     for _ in range(args.lines):
         time.sleep(0.1)
         sys.stdout.write(f"out line {i}\n")

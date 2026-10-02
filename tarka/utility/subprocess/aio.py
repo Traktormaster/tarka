@@ -1,26 +1,34 @@
 import asyncio
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional, Union
 
 
 async def call_subprocess_for_output(
     program: str,
     *args: str,
     decode: bool = True,
-    decode_encoding: str = "utf-8",
+    decode_encoding: str = "utf-8",  # NOTE: also used for input_ if it is str
     decode_errors: str = "replace",
     kill_on_abandon: bool = False,
     wait_on_abandon: bool = False,
+    input_: Optional[Union[bytes, str]] = None,
     **kwargs,
 ) -> dict:
     """
     Conveniently run a subprocess without blocking the asyncio loop and return its output.
     """
     proc = await asyncio.create_subprocess_exec(
-        program, *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, **kwargs
+        program,
+        *args,
+        stdin=kwargs.pop("stdin", asyncio.subprocess.PIPE if input_ is not None else None),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        **kwargs,
     )
     try:
-        stdout, stderr = await proc.communicate()
+        if isinstance(input_, str):
+            input_ = input_.encode(decode_encoding)
+        stdout, stderr = await proc.communicate(input_)
     finally:
         if proc.returncode is None:
             if kill_on_abandon:

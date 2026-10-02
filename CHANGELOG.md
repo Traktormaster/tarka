@@ -1,5 +1,8 @@
 # tarka
 
+## 0.24.0
+- add input support to aio subprocess utility
+
 ## 0.23.0
 - add aio subprocess utilities
 - Python 3.14 compatibility
